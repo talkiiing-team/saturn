@@ -1,0 +1,21 @@
+name: push-image
+
+on:
+  - push
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    if: ${{ success() && github.ref == 'refs/heads/main' }}
+
+    steps:
+      - uses: actions/checkout@v2
+        name: Checkout
+
+      - name: docker image
+        uses: macbre/push-to-ghcr@master
+        with:
+          image_name: ${{ github.repository }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          image_tag: latest
+          dockerfile: ./saturn/dockerfile

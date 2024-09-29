@@ -1,0 +1,102 @@
+services:
+  chroma:
+    image: "chromadb/chroma:0.5.9"
+    restart: unless-stopped
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: "/chroma/chroma"
+    healthcheck:
+      test:
+        ["CMD", "/bin/bash", "-c", "cat < /dev/null > /dev/tcp/localhost/8000"]
+      interval: 30s
+      timeout: 10s
+      start_period: 5s
+      retries: 3
+    ports:
+      - "8000:8000"
+
+  redis:
+    image: "redis:latest"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      start_period: 5s
+      retries: 5
+    ports:
+      - "6379:6379"
+
+  api:
+    restart: always
+    build:
+      context: "./"
+      dockerfile: "./saturn/dockerfile"
+    command:
+      [
+        "python3",
+        "-m",
+        "uvicorn",
+        "saturn.api.app:app",
+        "--host=0.0.0.0",
+        "--port=80",
+      ]
+    ports:
+      - "3000:80"
+    environment:
+      REDIS_DSN: "redis://redis:6379"
+      CHROMA_HOST: "chroma"
+      CHROMA_PORT: "8000"
+    healthcheck:
+      test: "curl --fail http://localhost/health || exit 1"
+      interval: 60s
+      start_period: 5s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - worker_shared:/opt/saturn/tmp
+
+  worker: &worker_service
+    restart: always
+    deploy:
+      replicas: 8
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    build:
+      context: "./"
+      dockerfile: "./saturn/dockerfile"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_DSN: "redis://redis:6379"
+      LIBROSA_CACHE_DIR: "/opt/saturn/tmp/librosa_cache"
+      LIBROSA_CACHE_LEVEL: "50"
+    volumes:
+      - worker_shared:/opt/saturn/tmp
+    command:
+      [
+        "python3",
+        "-m",
+        "taskiq",
+        "worker",
+        "--workers=1",
+        "saturn.libs.broker:broker",
+        "saturn.processors.tasks.video_processing",
+        "saturn.processors.tasks.source_media_preparator",
+        "saturn.processors.tasks.sst_extractor",
+        "saturn.processors.tasks.audio_embedding_extractor",
+      ]
+
+volumes:
+  worker_shared:
+  chroma_data:

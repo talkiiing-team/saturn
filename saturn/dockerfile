@@ -1,0 +1,15 @@
+FROM nvidia/cuda:12.1.1-devel-ubuntu22.04 AS base
+WORKDIR /usr/app
+
+ENV CUDA_DOCKER_ARCH=all
+ENV PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get upgrade -y && apt-get install -y git gcc wget build-essential ocl-icd-opencl-dev opencl-headers clinfo libclblast-dev libopenblas-dev ffmpeg tesseract-ocr tesseract-ocr-rus python3 python3-pip
+RUN mkdir -p /etc/OpenCL/vendors && echo "libnvidia-opencl.so.1" > /etc/OpenCL/vendors/nvidia.icd
+RUN python3 -m pip install --no-cache --upgrade pip setuptools
+
+COPY ./saturn/requirements.txt .
+RUN python3 -m pip install --no-cache -r requirements.txt
+
+COPY ./saturn/ ./saturn/
+
+ENV PYTHONPATH=/usr/app/
